@@ -1,11 +1,11 @@
-﻿{
+{
   "version": 2,
   "builds": [
     {
       "src": "app.py",
       "use": "@vercel/python"
     }
-  ],
+  ],  // <--- 这里多了一个逗号，是错误的！
   "routes": [
     {
       "src": "/(.*)",
