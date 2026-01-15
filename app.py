@@ -1,31 +1,41 @@
 # -*- coding: utf-8 -*-
-from flask import Flask, request, jsonify, json
+from flask import Flask, request, jsonify
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import math
+import os
 
-# --- Flask App Initialization with ASCII configuration ---
+# --- Flask App Initialization ---
 app = Flask(__name__)
-# This is the key change: Force Flask to escape non-ASCII characters.
-# This makes the JSON response compatible with older or buggy clients.
+# Key change for compatibility: Force Flask to escape non-ASCII characters.
 app.config['JSON_AS_ASCII'] = True
 
-# --- 核心计算函数 (保持不变) ---
+# --- 核心计算函数 ---
 def get_bazi_details(birth_time_str, gender):
     try:
         birth_dt = datetime.strptime(birth_time_str, '%Y-%m-%d %H:%M')
     except ValueError:
         raise ValueError("日期时间格式错误，请使用 'YYYY-MM-DD HH:MM' 格式。")
 
+    # --- Correctly locate data.csv in Vercel's environment ---
+    # When deployed, Vercel places all files in the /var/task/ directory.
+    # We create an absolute path to ensure pandas can find the file.
     try:
-        # NOTE: When running on Vercel, paths need to be relative to the root
-        df = pd.read_csv('data.csv', encoding='gbk')
+        current_dir = os.path.dirname(os.path.realpath(__file__))
+        csv_path = os.path.join(current_dir, 'data.csv')
+        df = pd.read_csv(csv_path, encoding='gbk')
     except FileNotFoundError:
-        raise FileNotFoundError("错误：在服务器上找不到 data.csv 文件。")
+        raise FileNotFoundError(f"错误：在服务器的路径 {csv_path} 找不到 data.csv 文件。")
     except Exception as e:
         raise Exception(f"读取CSV文件时出错: {e}")
 
+    # --- The rest of the calculation logic (remains the same) ---
     DATE_COLUMN, SOLAR_TERM_COLUMN, GAN_ZHI_COLUMN = '日期', '节气', '干支'
+    JIAZI_CYCLE = [TIAN_GAN[i % 10] + DI_ZHI[i % 12] for i in range(60)]
+    TIAN_GAN = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
+    DI_ZHI = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
+    JIE_QI = ['立春', '惊蛰', '清明', '立夏', '芒种', '小暑', '立秋', '白露', '寒露', '立冬', '大雪', '小寒']
+
     df[DATE_COLUMN] = pd.to_datetime(df[DATE_COLUMN])
 
     lichun_this_year = df[(df[DATE_COLUMN].dt.year == birth_dt.year) & (df[SOLAR_TERM_COLUMN] == '立春')]
@@ -57,10 +67,10 @@ def get_bazi_details(birth_time_str, gender):
     }
     hour_gan_zhi = None
     for hours, col_name in hour_map.items():
-        if hour in hours:
-            hour_gan_zhi = day_row.iloc[0][col_name]
-            break
-    
+        if hour in hours or (hour == 0 and 0 in hours):
+             hour_gan_zhi = day_row.iloc[0][col_name]
+             break
+
     if pd.isna(hour_gan_zhi):
         raise ValueError(f"无法为 {birth_dt.hour} 点找到对应的时柱。")
 
@@ -101,12 +111,8 @@ def bazi_handler():
         return jsonify({"error": "请求体必须是JSON，且包含 'birth_time' 和 'gender' 字段。"}), 400
     try:
         bazi_info = get_bazi_details(data['birth_time'], data['gender'])
-        # jsonify will now respect the app.config['JSON_AS_ASCII'] = True
         return jsonify(bazi_info)
     except Exception as e:
+        # Return error as JSON with ASCII compatibility
         return jsonify({"error": str(e)}), 500
-
-# --- 本地测试运行 (保持不变) ---
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
 
