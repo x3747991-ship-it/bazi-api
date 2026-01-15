@@ -10,6 +10,12 @@ app = Flask(__name__)
 # Key change for compatibility: Force Flask to escape non-ASCII characters.
 app.config['JSON_AS_ASCII'] = True
 
+# --- GLOBAL CONSTANTS (Moved back to the correct global scope) ---
+TIAN_GAN = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
+DI_ZHI = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
+JIAZI_CYCLE = [TIAN_GAN[i % 10] + DI_ZHI[i % 12] for i in range(60)]
+JIE_QI = ['立春', '惊蛰', '清明', '立夏', '芒种', '小暑', '立秋', '白露', '寒露', '立冬', '大雪', '小寒']
+
 # --- 核心计算函数 ---
 def get_bazi_details(birth_time_str, gender):
     try:
@@ -17,9 +23,6 @@ def get_bazi_details(birth_time_str, gender):
     except ValueError:
         raise ValueError("日期时间格式错误，请使用 'YYYY-MM-DD HH:MM' 格式。")
 
-    # --- Correctly locate data.csv in Vercel's environment ---
-    # When deployed, Vercel places all files in the /var/task/ directory.
-    # We create an absolute path to ensure pandas can find the file.
     try:
         current_dir = os.path.dirname(os.path.realpath(__file__))
         csv_path = os.path.join(current_dir, 'data.csv')
@@ -29,13 +32,7 @@ def get_bazi_details(birth_time_str, gender):
     except Exception as e:
         raise Exception(f"读取CSV文件时出错: {e}")
 
-    # --- The rest of the calculation logic (remains the same) ---
     DATE_COLUMN, SOLAR_TERM_COLUMN, GAN_ZHI_COLUMN = '日期', '节气', '干支'
-    JIAZI_CYCLE = [TIAN_GAN[i % 10] + DI_ZHI[i % 12] for i in range(60)]
-    TIAN_GAN = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
-    DI_ZHI = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
-    JIE_QI = ['立春', '惊蛰', '清明', '立夏', '芒种', '小暑', '立秋', '白露', '寒露', '立冬', '大雪', '小寒']
-
     df[DATE_COLUMN] = pd.to_datetime(df[DATE_COLUMN])
 
     lichun_this_year = df[(df[DATE_COLUMN].dt.year == birth_dt.year) & (df[SOLAR_TERM_COLUMN] == '立春')]
@@ -66,13 +63,19 @@ def get_bazi_details(birth_time_str, gender):
         (15, 16): '申(15-17)', (17, 18): '酉(17-19)', (19, 20): '戌(19-21)', (21, 22): '亥(21-23)'
     }
     hour_gan_zhi = None
+    # Corrected logic for hour 0 and 23
     for hours, col_name in hour_map.items():
-        if hour in hours or (hour == 0 and 0 in hours):
+        if (hour >= hours[0] and hour <= hours[1]) or (hours[0] == 23 and (hour == 23 or hour == 0)):
              hour_gan_zhi = day_row.iloc[0][col_name]
              break
 
     if pd.isna(hour_gan_zhi):
+        # A special check for hour 0, which might fall into the previous day's Di Zhi
+        if hour == 0:
+             hour_gan_zhi = day_row.iloc[0]['子（23-1）']
+    if pd.isna(hour_gan_zhi):
         raise ValueError(f"无法为 {birth_dt.hour} 点找到对应的时柱。")
+
 
     year_gan = year_gan_zhi[0]
     is_yang_year = year_gan in ['甲', '丙', '戊', '庚', '壬']
@@ -113,6 +116,4 @@ def bazi_handler():
         bazi_info = get_bazi_details(data['birth_time'], data['gender'])
         return jsonify(bazi_info)
     except Exception as e:
-        # Return error as JSON with ASCII compatibility
         return jsonify({"error": str(e)}), 500
-
