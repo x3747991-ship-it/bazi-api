@@ -1,14 +1,14 @@
-﻿# -*- coding: utf-8 -*-
-from flask import Flask, request, jsonify
+# -*- coding: utf-8 -*-
+from flask import Flask, request, jsonify, json
 import pandas as pd
 from datetime import datetime, timedelta
 import math
 
-# --- 基础数据定义 (保持不变) ---
-TIAN_GAN = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
-DI_ZHI = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
-JIAZI_CYCLE = [TIAN_GAN[i % 10] + DI_ZHI[i % 12] for i in range(60)]
-JIE_QI = ['立春', '惊蛰', '清明', '立夏', '芒种', '小暑', '立秋', '白露', '寒露', '立冬', '大雪', '小寒']
+# --- Flask App Initialization with ASCII configuration ---
+app = Flask(__name__)
+# This is the key change: Force Flask to escape non-ASCII characters.
+# This makes the JSON response compatible with older or buggy clients.
+app.config['JSON_AS_ASCII'] = True
 
 # --- 核心计算函数 (保持不变) ---
 def get_bazi_details(birth_time_str, gender):
@@ -18,9 +18,10 @@ def get_bazi_details(birth_time_str, gender):
         raise ValueError("日期时间格式错误，请使用 'YYYY-MM-DD HH:MM' 格式。")
 
     try:
+        # NOTE: When running on Vercel, paths need to be relative to the root
         df = pd.read_csv('data.csv', encoding='gbk')
     except FileNotFoundError:
-        raise FileNotFoundError("错误：找不到 data.csv 文件。请确保它与脚本在同一个文件夹中。")
+        raise FileNotFoundError("错误：在服务器上找不到 data.csv 文件。")
     except Exception as e:
         raise Exception(f"读取CSV文件时出错: {e}")
 
@@ -92,8 +93,7 @@ def get_bazi_details(birth_time_str, gender):
         "大运（前九步）": {f"{start_luck_years + i*10}岁": pillar for i, pillar in enumerate(luck_pillars)}
     }
 
-# --- Flask Web 应用封装 (保持不变) ---
-app = Flask(__name__)
+# --- Flask Web 应用封装 ---
 @app.route('/bazi', methods=['POST'])
 def bazi_handler():
     data = request.get_json()
@@ -101,6 +101,7 @@ def bazi_handler():
         return jsonify({"error": "请求体必须是JSON，且包含 'birth_time' 和 'gender' 字段。"}), 400
     try:
         bazi_info = get_bazi_details(data['birth_time'], data['gender'])
+        # jsonify will now respect the app.config['JSON_AS_ASCII'] = True
         return jsonify(bazi_info)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -108,3 +109,4 @@ def bazi_handler():
 # --- 本地测试运行 (保持不变) ---
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
+
